@@ -1,15 +1,22 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"log"
 	"net"
 	"net/http"
 	"strconv"
 
+	_ "github.com/go-sql-driver/mysql"
 	"github.com/gorilla/mux"
 )
+
+var db *sql.DB
+
+// var dbInsert
 
 type Payload struct {
 	TS         string                 `json:"ts"`
@@ -17,6 +24,32 @@ type Payload struct {
 	SentFromIP string                 `json:"sent-from-ip"`
 	Priority   int                    `json:"priority"`
 	Message    map[string]interface{} `json:"message"`
+}
+
+func hash(s string) uint32 {
+	h := fnv.New32a()
+	h.Write([]byte(s))
+	return h.Sum32()
+}
+
+func createMessageHash(payload Payload) uint32 {
+	// turning message back into a string (as how it came in from the handler)
+	// concatenating all payload values then hashing
+	messageString, _ := json.Marshal(payload.Message)
+	return hash(payload.TS + payload.Sender + payload.SentFromIP + string(messageString))
+}
+
+func addPayloadToDB(payload Payload) {
+	payloadHash := createMessageHash(payload)
+	messageString, _ := json.Marshal(payload.Message)
+	values := fmt.Sprintf("'%s','%s','%s','%s','%s'", fmt.Sprint(payloadHash), payload.TS, payload.Sender, string(messageString), payload.SentFromIP)
+	query := fmt.Sprintf("INSERT INTO Payloads VALUES(%s)", values)
+	fmt.Println("query: ", query)
+	dbInsert, err := db.Query(query)
+	if err != nil {
+		panic(err.Error())
+	}
+	defer dbInsert.Close()
 }
 
 func validateTimestamp(timestamp string) bool {
@@ -78,7 +111,8 @@ func handlePayload(w http.ResponseWriter, r *http.Request) {
 
 	// validating payload and either handling data or returning validation error
 	if validatePayload(payload) {
-		// TODO: handle queueing and storing (sql) data
+		// adding valid payload to db
+		addPayloadToDB(payload)
 	} else {
 		// returning error: invalid payload to sender
 		http.Error(w, "error: invalid payload", http.StatusBadRequest)
@@ -89,16 +123,25 @@ func handlePayload(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "Payload Hit")
 }
 
-func handleRequests() {
+func handleRequests(db *sql.DB) {
 	// creating router with strict slash rule
 	router := mux.NewRouter().StrictSlash(true)
 	// setting up endpoint and handler for payload
 	router.HandleFunc("/payload", handlePayload).Methods("POST")
 	// setting up listener on port 8080 with router
-	log.Fatal(http.ListenAndServe(":8080", router))
+	log.Fatal(http.ListenAndServe(":8081", router))
 }
 
 func main() {
+	// initializing sql server connection
+	// using root for this demo but a proper implementation would use a created account with appropriate permissions
+	var dbErr error
+	db, dbErr = sql.Open("mysql", "root:rootpassword@tcp(127.0.0.1:3306)/mydb")
+	if dbErr != nil {
+		panic(dbErr.Error())
+	}
+	defer db.Close()
+
 	// initializing web service
-	handleRequests()
+	handleRequests(db)
 }

@@ -1,0 +1,19 @@
+version: "3"
+services: 
+    mysql_container:
+        image: mysql:latest
+        container_name: mysql-container
+        ports:
+            - 3306:3306
+        volumes:
+            - ./payloadDB.sql:/docker-entrypoint-initdb.d/dump.sql
+        environment:
+            MYSQL_ROOT_PASSWORD: rootpassword
+    adminer_container:
+        image: adminer:latest
+        environment:
+            ADMINER_DEFAULT_SERVER: mysql_container
+        ports:
+            - 8080:8080
+    # rabbit_mq:
+    #     # Setup queue
