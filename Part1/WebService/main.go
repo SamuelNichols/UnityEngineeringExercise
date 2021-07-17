@@ -12,12 +12,21 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gorilla/mux"
+	"github.com/streadway/amqp"
 )
 
+// --------------------------------------------------------------------------------------------------------------------
+// Begin Init Vars ----------------------------------------------------------------------------------------------------
+// --------------------------------------------------------------------------------------------------------------------
+
+// db and channel(unique queue conn) variables are scoped publicly to allow use by mux handlers
 var db *sql.DB
+var channel *amqp.Channel
 
-// var dbInsert
+// name of queue that messages from will be added to
+const queueName string = "payloads"
 
+// struct for parsing payload json
 type Payload struct {
 	TS         string                 `json:"ts"`
 	Sender     string                 `json:"sender"`
@@ -26,6 +35,13 @@ type Payload struct {
 	Message    map[string]interface{} `json:"message"`
 }
 
+// --------------------------------------------------------------------------------------------------------------------
+// End Init Vars ------------------------------------------------------------------------------------------------------
+// --------------------------------------------------------------------------------------------------------------------
+// Begin SQL Functions ------------------------------------------------------------------------------------------------
+// --------------------------------------------------------------------------------------------------------------------
+
+// simple function that returns a 32-bit FNV-1a hash of a given string
 func hash(s string) uint32 {
 	h := fnv.New32a()
 	h.Write([]byte(s))
@@ -40,17 +56,54 @@ func createMessageHash(payload Payload) uint32 {
 }
 
 func addPayloadToDB(payload Payload) {
+	// current payload doesn't have a value that would serve as an appropriate public key
+	// creating a recreatable public key by hashing payload (without priority)
 	payloadHash := createMessageHash(payload)
+	// converting payload to []byte then string for inserting into db
 	messageString, _ := json.Marshal(payload.Message)
+	// building query and inserting payload into db and handling errors
 	values := fmt.Sprintf("'%s','%s','%s','%s','%s'", fmt.Sprint(payloadHash), payload.TS, payload.Sender, string(messageString), payload.SentFromIP)
 	query := fmt.Sprintf("INSERT INTO Payloads VALUES(%s)", values)
-	fmt.Println("query: ", query)
 	dbInsert, err := db.Query(query)
 	if err != nil {
 		panic(err.Error())
 	}
 	defer dbInsert.Close()
 }
+
+// --------------------------------------------------------------------------------------------------------------------
+// End SQL Functions --------------------------------------------------------------------------------------------------
+// --------------------------------------------------------------------------------------------------------------------
+// Begin Queue Functions ----------------------------------------------------------------------------------------------
+// --------------------------------------------------------------------------------------------------------------------
+
+func addPayloadToQueue(payload Payload) {
+	// converting message to string
+	messageString, _ := json.Marshal(payload.Message)
+	// publishing message to queue as json
+	err := channel.Publish(
+		"",
+		queueName,
+		false,
+		false,
+		amqp.Publishing{
+			ContentType: "application/json",
+			Body:        messageString,
+			Priority:    uint8(payload.Priority),
+		},
+	)
+	// handling errors
+	if err != nil {
+		panic(err.Error())
+	}
+
+}
+
+// --------------------------------------------------------------------------------------------------------------------
+// End Queue Functions ------------------------------------------------------------------------------------------------
+// --------------------------------------------------------------------------------------------------------------------
+// Begin Payload Functions --------------------------------------------------------------------------------------------
+// --------------------------------------------------------------------------------------------------------------------
 
 func validateTimestamp(timestamp string) bool {
 	// a unix timestamp is valid if it is an integer (seconds from unix epoch)
@@ -97,6 +150,12 @@ func validatePayload(payload Payload) bool {
 	return (validateTimestamp(payload.TS) && validateSender(payload.Sender) && validateSentFromIP(payload.SentFromIP) && validateMessage(payload.Message))
 }
 
+// --------------------------------------------------------------------------------------------------------------------
+// End Payload Functions ----------------------------------------------------------------------------------------------
+// --------------------------------------------------------------------------------------------------------------------
+// Begin Mux Handler Logic --------------------------------------------------------------------------------------------
+// --------------------------------------------------------------------------------------------------------------------
+
 func handlePayload(w http.ResponseWriter, r *http.Request) {
 	// instantiating payload struct
 	var payload Payload
@@ -113,6 +172,8 @@ func handlePayload(w http.ResponseWriter, r *http.Request) {
 	if validatePayload(payload) {
 		// adding valid payload to db
 		addPayloadToDB(payload)
+		// adding valid payload to queue (testqueue)
+		addPayloadToQueue(payload)
 	} else {
 		// returning error: invalid payload to sender
 		http.Error(w, "error: invalid payload", http.StatusBadRequest)
@@ -132,16 +193,41 @@ func handleRequests(db *sql.DB) {
 	log.Fatal(http.ListenAndServe(":8081", router))
 }
 
+// --------------------------------------------------------------------------------------------------------------------
+// End Mux Handler Logic ----------------------------------------------------------------------------------------------
+// --------------------------------------------------------------------------------------------------------------------
+// Begin Main  --------------------------------------------------------------------------------------------------------
+// --------------------------------------------------------------------------------------------------------------------
+
 func main() {
 	// initializing sql server connection
 	// using root for this demo but a proper implementation would use a created account with appropriate permissions
-	var dbErr error
-	db, dbErr = sql.Open("mysql", "root:rootpassword@tcp(127.0.0.1:3306)/mydb")
-	if dbErr != nil {
-		panic(dbErr.Error())
+	var dbError error
+	db, dbError = sql.Open("mysql", "root:rootpassword@tcp(127.0.0.1:3306)/mydb")
+	if dbError != nil {
+		panic(dbError.Error())
 	}
 	defer db.Close()
+
+	// initializing message queue connection
+	// using default user and pass, as with above sql a proper implementation would utilized an actual user account
+	queue, queueErr := amqp.Dial("amqp://guest:guest@localhost:5672/")
+	if queueErr != nil {
+		panic(queueErr.Error())
+	}
+	defer queue.Close()
+	// creating unique server channel for processing queue messages
+	var channelError error
+	channel, channelError = queue.Channel()
+	if channelError != nil {
+		panic(channelError.Error())
+	}
+	defer channel.Close()
 
 	// initializing web service
 	handleRequests(db)
 }
+
+// --------------------------------------------------------------------------------------------------------------------
+// End Main  ----------------------------------------------------------------------------------------------------------
+// --------------------------------------------------------------------------------------------------------------------
