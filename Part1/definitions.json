@@ -1,0 +1,13 @@
+{
+    "exchanges": [],
+    "queues": [
+      {
+        "name": "payloads",
+        "vhost": "/",
+        "durable": true,
+        "auto_delete": false,
+        "arguments": {}
+      }
+    ],
+    "bindings": []
+  }
