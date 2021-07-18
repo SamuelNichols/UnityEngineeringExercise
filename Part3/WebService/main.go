@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -18,6 +19,9 @@ import (
 // --------------------------------------------------------------------------------------------------------------------
 // Begin Init Vars ----------------------------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------------------------------------------
+
+// port environment var for containerization
+var port = ":" + os.Getenv("PORT")
 
 // db and channel(unique queue conn) variables are scoped publicly to allow use by mux handlers
 var db *sql.DB
@@ -190,7 +194,7 @@ func handleRequests(db *sql.DB) {
 	// setting up endpoint and handler for payload
 	router.HandleFunc("/payload", handlePayload).Methods("POST")
 	// setting up listener on port 8080 with router
-	log.Fatal(http.ListenAndServe(":8081", router))
+	log.Fatal(http.ListenAndServe(port, router))
 }
 
 // --------------------------------------------------------------------------------------------------------------------
@@ -203,7 +207,7 @@ func main() {
 	// initializing sql server connection
 	// using root for this demo but a proper implementation would use a created account with appropriate permissions
 	var dbError error
-	db, dbError = sql.Open("mysql", "root:rootpassword@tcp(localhost:3306)/mydb")
+	db, dbError = sql.Open("mysql", "root:rootpassword@tcp(mysql_container:3306)/mydb")
 	if dbError != nil {
 		panic(dbError.Error())
 	}
@@ -211,7 +215,7 @@ func main() {
 
 	// initializing message queue connection
 	// using default user and pass, as with above sql a proper implementation would utilized an actual user account
-	queue, queueErr := amqp.Dial("amqp://guest:guest@localhost:5672/")
+	queue, queueErr := amqp.Dial("amqp://guest:guest@rabbitmq:5672/")
 	if queueErr != nil {
 		panic(queueErr.Error())
 	}
