@@ -207,11 +207,27 @@ func main() {
 	// initializing sql server connection
 	// using root for this demo but a proper implementation would use a created account with appropriate permissions
 	var dbError error
-	db, dbError = sql.Open("mysql", "root:rootpassword@tcp(mysql_container:3306)/mydb")
+	db, dbError = sql.Open("mysql", "root:rootpassword@tcp(mysql:3306)/")
 	if dbError != nil {
 		panic(dbError.Error())
 	}
 	defer db.Close()
+
+	_, dbError = db.Exec("CREATE SCHEMA IF NOT EXISTS `mydb` DEFAULT CHARACTER SET utf8")
+	if dbError != nil {
+		panic(dbError)
+	}
+
+	db, dbError = sql.Open("mysql", "root:rootpassword@tcp(mysql:3306)/mydb")
+	if dbError != nil {
+		panic(dbError.Error())
+	}
+	defer db.Close()
+
+	_, dbError = db.Exec("CREATE TABLE IF NOT EXISTS `mydb`.`Payloads` (`PayloadHash` BIGINT(255) NOT NULL,`Timestamp` INT NULL,`Sender` CHAR(45) NULL,`Message` JSON NULL,`SentFromIP` CHAR(45) NULL,PRIMARY KEY (`PayloadHash`))")
+	if dbError != nil {
+		panic(dbError)
+	}
 
 	// initializing message queue connection
 	// using default user and pass, as with above sql a proper implementation would utilized an actual user account

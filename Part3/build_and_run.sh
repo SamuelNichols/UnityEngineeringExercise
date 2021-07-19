@@ -1,6 +1,10 @@
+#!/bin/bash
+
 # Building Webservice Dockerfile
 pushd WebService
 docker build -t webservice-container .
 popd
-# Starting docker compose
-docker-compose up
+# Starting kube script
+pushd Kubernetes
+./kube-manage.sh create
+popd

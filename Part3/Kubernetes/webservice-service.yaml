@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: webservice
+spec:
+  selector:
+    app: webservice
+  type: LoadBalancer
+  ports:
+  - port: 8081 # This is the port of the service that other pods -> deployments -> services will use to interact
+    targetPort: 8081 # This is the port of one (of possibly many) pods created by the webservice deployment
+    nodePort: 30081 # External port to hit endpoint from
+                    # Expose this with minikube using `minikube service <service name from kubectl get service>`
