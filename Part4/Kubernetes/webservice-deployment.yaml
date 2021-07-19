@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webservice
+  labels:
+    app: webservice
+spec:
+  selector:
+    matchLabels:
+      app: webservice
+  template:
+    metadata:
+      labels:
+        app: webservice
+    spec:
+      replicas: 3
+      containers:
+      - name: webservice
+        image: webservice-container
+        imagePullPolicy: Never # This way we pull the locally built webservice container
+        ports:
+        - containerPort: 8081 # This is the port the container opens
